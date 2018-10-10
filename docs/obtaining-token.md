@@ -30,5 +30,8 @@ Follow the steps below to do so.
 ---
 
 7. Open `cerebro` and type `plugins ynab`, then click over to settings.
+
+![Cerebro Settings for YNAB](./cerebro-settings.png)
+
 8. Copy the token from YNAB into the `Access Token` setting.
 9. Insert `ynab` into `cerebro` to verify that the plugin is working.

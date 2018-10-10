@@ -20,6 +20,7 @@ In Cerebro, type `ynab` and one of the supported subcommands to get a quick view
 
 ### Notes
 
+- Currently, only the first "Budget" will be used to display values.
 - Accounts are listed with budget-related ones first (may not respect order in app)
 - All Transactions are ordered by date in descending order (newest first) from the beginning of the current month.
 
