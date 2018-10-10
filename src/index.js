@@ -13,15 +13,20 @@ const subCommands = ['categories', 'accounts', 'transactions'];
 let ynab;
 
 export const fn = ({ term, display, hide, settings }) => {
+  const [command, subCommand, ...args] = term.split(/\s+/);
+  if (command !== keyword) {
+    return;
+  }
+
   if (!settings.token) {
     display({
       icon: YnabIcon,
       title: 'Please Initialize Plugin Before Use',
+      subtitle: 'Press Tab to go to YNAB Plusing Settings',
       term: 'plugins ynab'
     });
     return;
   }
-
   if (!ynab) {
     ynab = new YnabWrapper(settings.token);
   }
@@ -29,8 +34,7 @@ export const fn = ({ term, display, hide, settings }) => {
     ynab.initialize();
   }
 
-  const [command, subCommand, ...args] = term.split(/\s+/);
-  if (command === keyword && !subCommands.includes(subCommand)) {
+  if (!subCommands.includes(subCommand)) {
     subCommands.forEach((subCommandKeyword) => {
       display({
         icon: YnabIcon,
