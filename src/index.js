@@ -1,120 +1,34 @@
-import orderBy from 'lodash/orderBy';
-import * as ynab from 'ynab';
-import memoize from 'memoizee';
-import moment from 'moment';
-
+import YnabWrapper from './ynab-wrapper';
 import YnabIcon from './YnabIcon.png';
-
-const FIVE_MINUTES_MS = 5 * 60 * 1000;
 
 export const icon = YnabIcon;
 export const name = 'YNAB';
 export const keyword = 'ynab';
 export const settings = {
-  token: { type: 'string' },
-  budgetId: { type: 'string' }
+  token: { label: 'Access Token', type: 'string' }
 };
 
 const subCommands = ['categories', 'accounts', 'transactions'];
 
-let ynabClient;
-let budgetId;
-
-const fetchCategories = memoize(
-  () => {
-    if (!budgetId) {
-      return Promise.resolve([]);
-    }
-    return ynabClient.categories
-      .getCategories(budgetId)
-      .then(({ data }) => data.category_groups)
-      .then((categoryGroups = []) => {
-        const allCategories = [];
-        categoryGroups
-          .filter(({ deleted, hidden }) => !deleted && !hidden)
-          .forEach(({ name, categories }) => {
-            allCategories.push(
-              ...categories
-                .filter(({ deleted, hidden }) => !deleted && !hidden)
-                .map((category) => ({
-                  ...category,
-                  groupName: name,
-                  fullyQualifiedName: `${name}/${category.name}`
-                }))
-            );
-          });
-        return allCategories;
-      });
-  },
-  {
-    promise: true,
-    maxAge: FIVE_MINUTES_MS
-  }
-);
-
-const fetchAccounts = memoize(
-  () => {
-    if (!budgetId) {
-      return Promise.resolve([]);
-    }
-    return ynabClient.accounts
-      .getAccounts(budgetId)
-      .then(({ data }) => data)
-      .then(({ accounts }) =>
-        orderBy(accounts, 'on_budget', 'desc').filter(
-          ({ deleted, closed }) => !deleted && !closed
-        )
-      );
-  },
-  {
-    promise: true,
-    maxAge: FIVE_MINUTES_MS
-  }
-);
-
-const fetchTransactions = memoize(
-  (type, id) => {
-    if (!budgetId) {
-      return Promise.resolve([]);
-    }
-    let getTransactions = (...args) =>
-      ynabClient.transactions.getTransactions(budgetId, ...args);
-    if (type === 'category') {
-      getTransactions = (...args) =>
-        ynabClient.transactions.getTransactionsByCategory(
-          budgetId,
-          id,
-          ...args
-        );
-    }
-    if (type === 'account') {
-      getTransactions = (...args) =>
-        ynabClient.transactions.getTransactionsByAccount(budgetId, id, ...args);
-    }
-    const startOfMonth = moment()
-      .startOf('month')
-      .format('YYYY-MM-DD');
-    return getTransactions(startOfMonth)
-      .then(({ data }) => data)
-      .then(({ transactions }) =>
-        orderBy(transactions, 'date', 'desc').filter(({ deleted }) => !deleted)
-      );
-  },
-  {
-    promise: true,
-    maxAge: FIVE_MINUTES_MS
-  }
-);
+let ynab;
 
 export const fn = ({ term, display, hide, settings }) => {
-  if (!ynabClient) {
-    ynabClient = new ynab.API(settings.token);
-  }
-  if (!budgetId) {
-    ynabClient.budgets.getBudgets().then(({ data: { budgets } }) => {
-      [{ id: budgetId }] = budgets;
+  if (!settings.token) {
+    display({
+      icon: YnabIcon,
+      title: 'Please Initialize Plugin Before Use',
+      term: 'plugins ynab'
     });
+    return;
   }
+
+  if (!ynab) {
+    ynab = new YnabWrapper(settings.token);
+  }
+  if (!ynab.budgetId) {
+    ynab.initialize();
+  }
+
   const [command, subCommand, ...args] = term.split(/\s+/);
   if (command === keyword && !subCommands.includes(subCommand)) {
     subCommands.forEach((subCommandKeyword) => {
@@ -131,7 +45,7 @@ export const fn = ({ term, display, hide, settings }) => {
       id: 'loading-categories',
       title: 'Loading Categories...'
     });
-    fetchCategories().then((categories = []) => {
+    ynab.fetchCategories().then((categories = []) => {
       const categoryFilter = args.join(' ');
       const filteredCategoryGroups = categories.filter(
         ({ fullyQualifiedName }) =>
@@ -150,7 +64,7 @@ export const fn = ({ term, display, hide, settings }) => {
       id: 'loading-accounts',
       title: 'Loading Accounts...'
     });
-    fetchAccounts().then((accounts = []) => {
+    ynab.fetchAccounts().then((accounts = []) => {
       const accountFilter = args.join(' ');
       const filteredAccounts = accounts.filter(
         ({ name }) =>
@@ -167,7 +81,7 @@ export const fn = ({ term, display, hide, settings }) => {
       id: 'loading-transactions',
       title: 'Loading Transactions...'
     });
-    fetchTransactions().then((transactions) => {
+    ynab.fetchTransactions().then((transactions) => {
       const transactionFilter = args.join(' ');
       const filteredTransactions = transactions.filter(
         ({ payee_name }) =>
@@ -185,9 +99,9 @@ function displayCategories({ display, hide }, categories) {
     display({
       icon: YnabIcon,
       title: `Category: ${fullyQualifiedName}`,
-      subtitle: `Remaining: ${formatAmount(balance)}  (${formatAmount(
+      subtitle: `Remaining: ${ynab.formatAmount(balance)}  (${ynab.formatAmount(
         -activity
-      )} / ${formatAmount(budgeted)})`,
+      )} / ${ynab.formatAmount(budgeted)})`,
       term: `${keyword} categories ${fullyQualifiedName}`
     });
   });
@@ -197,16 +111,18 @@ function displayCategories({ display, hide }, categories) {
       id: 'loading-transactions',
       title: 'Loading Transactions...'
     });
-    fetchTransactions('category', categories[0].id).then((transactions) => {
-      hide('loading-transactions');
-      displayTransactions({ display }, transactions);
-    });
+    ynab
+      .fetchTransactions('category', categories[0].id)
+      .then((transactions) => {
+        hide('loading-transactions');
+        displayTransactions({ display }, transactions);
+      });
   }
 }
 
 function displayAccounts({ display, hide }, accounts) {
   accounts.forEach(({ name, balance }) => {
-    const formattedBalance = formatAmount(balance);
+    const formattedBalance = ynab.formatAmount(balance);
     display({
       icon: YnabIcon,
       title: `Account: ${name}`,
@@ -220,7 +136,7 @@ function displayAccounts({ display, hide }, accounts) {
       id: 'loading-transactions',
       title: 'Loading Transactions...'
     });
-    fetchTransactions('account', accounts[0].id).then((transactions) => {
+    ynab.fetchTransactions('account', accounts[0].id).then((transactions) => {
       hide('loading-transactions');
       displayTransactions({ display }, transactions);
     });
@@ -229,16 +145,11 @@ function displayAccounts({ display, hide }, accounts) {
 
 function displayTransactions({ display }, transactions) {
   transactions.forEach(({ payee_name, amount }) => {
-    const formattedBalance = formatAmount(amount);
+    const formattedBalance = ynab.formatAmount(amount);
     display({
       icon: YnabIcon,
       title: `Transaction: ${payee_name}`,
       subtitle: formattedBalance
     });
   });
-}
-
-function formatAmount(amount) {
-  const isNegative = amount < 0;
-  return `${isNegative ? '-' : ''}\$${Math.abs(amount / 1000).toFixed(2)}`;
 }
