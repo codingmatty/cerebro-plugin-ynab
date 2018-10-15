@@ -1,6 +1,6 @@
 {
   "name": "cerebro-plugin-ynab",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "dependencies": {
     "cerebro-tools": "^0.1.8",
     "cerebro-ui": "^0.0.16",
