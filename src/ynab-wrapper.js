@@ -33,7 +33,6 @@ export default class YnabWrapper {
   initialize() {
     this.fetchBudgets.clear();
     this.fetchBudgets().then((budgets) => {
-      console.log('budgets: ', budgets);
       const [{ id, currency_format }] = budgets;
       this.budgetId = id;
       this.currencySettings = currency_format;
@@ -115,7 +114,12 @@ export default class YnabWrapper {
     return getTransactions(startOfMonth)
       .then(({ data }) => data)
       .then(({ transactions }) =>
-        orderBy(transactions, 'date', 'desc').filter(({ deleted }) => !deleted)
+        orderBy(transactions, 'date', 'desc')
+          .filter(({ deleted }) => !deleted)
+          .map((transaction) => ({
+            ...transaction,
+            dateFormatted: moment(transaction.date).format('MMMM DD, YYYY')
+          }))
       );
   }
 

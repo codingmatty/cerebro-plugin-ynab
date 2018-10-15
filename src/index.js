@@ -1,5 +1,10 @@
+import React from 'react';
+import captitalize from 'lodash/capitalize';
+import startCase from 'lodash/startCase';
 import YnabWrapper from './ynab-wrapper';
 import YnabIcon from './YnabIcon.png';
+import Progress from './Components/Progress.jsx';
+import List from './Components/List.jsx';
 
 export const icon = YnabIcon;
 export const name = 'YNAB';
@@ -13,7 +18,7 @@ const subCommands = ['categories', 'accounts', 'transactions'];
 let ynab;
 
 export const fn = ({ term, display, hide, settings }) => {
-  const [command, subCommand, ...args] = term.split(/\s+/);
+  const [command, subCommand, ...args] = term.toLowerCase().split(/\s+/);
   if (command !== keyword) {
     return;
   }
@@ -38,7 +43,7 @@ export const fn = ({ term, display, hide, settings }) => {
     subCommands.forEach((subCommandKeyword) => {
       display({
         icon: YnabIcon,
-        title: `${name} ${subCommandKeyword}`,
+        title: `${name} ${captitalize(subCommandKeyword)}`,
         term: `${keyword} ${subCommandKeyword}`
       });
     });
@@ -54,9 +59,7 @@ export const fn = ({ term, display, hide, settings }) => {
       const filteredCategoryGroups = categories.filter(
         ({ fullyQualifiedName }) =>
           !categoryFilter ||
-          fullyQualifiedName
-            .toLowerCase()
-            .includes(categoryFilter.toLowerCase())
+          fullyQualifiedName.toLowerCase().includes(categoryFilter)
       );
       hide('loading-categories');
       displayCategories({ display, hide }, filteredCategoryGroups);
@@ -72,8 +75,7 @@ export const fn = ({ term, display, hide, settings }) => {
       const accountFilter = args.join(' ');
       const filteredAccounts = accounts.filter(
         ({ name }) =>
-          !accountFilter ||
-          name.toLowerCase().includes(accountFilter.toLowerCase())
+          !accountFilter || name.toLowerCase().includes(accountFilter)
       );
       hide('loading-accounts');
       displayAccounts({ display, hide }, filteredAccounts);
@@ -88,12 +90,15 @@ export const fn = ({ term, display, hide, settings }) => {
     ynab.fetchTransactions().then((transactions) => {
       const transactionFilter = args.join(' ');
       const filteredTransactions = transactions.filter(
-        ({ payee_name }) =>
+        ({ payee_name, memo }) =>
           !transactionFilter ||
-          payee_name.toLowerCase().includes(transactionFilter.toLowerCase())
+          payee_name.toLowerCase().includes(transactionFilter) ||
+          (memo && memo.toLowerCase().includes(transactionFilter))
       );
       hide('loading-transactions');
-      displayTransactions({ display }, filteredTransactions);
+      displayTransactions({ display }, filteredTransactions, {
+        displayTotal: !!transactionFilter
+      });
     });
   }
 };
@@ -106,7 +111,22 @@ function displayCategories({ display, hide }, categories) {
       subtitle: `Remaining: ${ynab.formatAmount(balance)}  (${ynab.formatAmount(
         -activity
       )} / ${ynab.formatAmount(budgeted)})`,
-      term: `${keyword} categories ${fullyQualifiedName}`
+      term: `${keyword} categories ${fullyQualifiedName}`,
+      getPreview: () => (
+        <div>
+          <Progress percent={-activity / budgeted} />
+          <List
+            values={[
+              'Remaining:',
+              ynab.formatAmount(balance),
+              'Activity:',
+              ynab.formatAmount(activity),
+              'Budgeted:',
+              ynab.formatAmount(budgeted)
+            ]}
+          />
+        </div>
+      )
     });
   });
   if (categories.length === 1) {
@@ -125,15 +145,42 @@ function displayCategories({ display, hide }, categories) {
 }
 
 function displayAccounts({ display, hide }, accounts) {
-  accounts.forEach(({ name, balance }) => {
-    const formattedBalance = ynab.formatAmount(balance);
-    display({
-      icon: YnabIcon,
-      title: `Account: ${name}`,
-      subtitle: formattedBalance,
-      term: `${keyword} accounts ${name}`
-    });
-  });
+  accounts.forEach(
+    ({
+      name,
+      balance,
+      cleared_balance,
+      uncleared_balance,
+      type,
+      on_budget
+    }) => {
+      const formattedBalance = ynab.formatAmount(balance);
+      display({
+        icon: YnabIcon,
+        title: `Account: ${name}`,
+        subtitle: formattedBalance,
+        term: `${keyword} accounts ${name}`,
+        getPreview: () => (
+          <List
+            values={[
+              'Account:',
+              name,
+              'Balance:',
+              formattedBalance,
+              'Cleared Balanced:',
+              ynab.formatAmount(cleared_balance),
+              'Uncleared Amount:',
+              ynab.formatAmount(uncleared_balance),
+              'Type:',
+              startCase(type),
+              'On Budget:',
+              captitalize(Boolean(on_budget).toString())
+            ]}
+          />
+        )
+      });
+    }
+  );
   if (accounts.length === 1) {
     display({
       icon: YnabIcon,
@@ -147,13 +194,54 @@ function displayAccounts({ display, hide }, accounts) {
   }
 }
 
-function displayTransactions({ display }, transactions) {
-  transactions.forEach(({ payee_name, amount }) => {
-    const formattedBalance = ynab.formatAmount(amount);
+function displayTransactions(
+  { display },
+  transactions,
+  { displayTotal = false } = {}
+) {
+  if (displayTotal) {
+    const formattedAmountSum = ynab.formatAmount(
+      transactions.reduce((sum, { amount }) => sum + amount, 0)
+    );
     display({
       icon: YnabIcon,
-      title: `Transaction: ${payee_name}`,
-      subtitle: formattedBalance
+      title: `Transaction Search Sum`,
+      subtitle: formattedAmountSum
     });
-  });
+  }
+  transactions.forEach(
+    ({
+      payee_name,
+      amount,
+      dateFormatted,
+      category_name,
+      account_name,
+      memo
+    }) => {
+      const formattedAmount = ynab.formatAmount(amount);
+      display({
+        icon: YnabIcon,
+        title: `Transaction: ${payee_name}`,
+        subtitle: formattedAmount,
+        getPreview: () => (
+          <List
+            values={[
+              'Date:',
+              dateFormatted,
+              'Payee:',
+              payee_name,
+              'Amount:',
+              formattedAmount,
+              'Category:',
+              category_name,
+              'Account:',
+              account_name,
+              'Memo:',
+              memo
+            ]}
+          />
+        )
+      });
+    }
+  );
 }
